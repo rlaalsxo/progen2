@@ -1,0 +1,4 @@
+torch>=2.1.0
+transformers>=4.40.0
+tokenizers>=0.10.3
+furiosa-llm>=2026.1.0
