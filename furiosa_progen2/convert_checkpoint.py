@@ -131,6 +131,23 @@ def split_qkv_weight(qkv_weight: torch.Tensor, n_head: int, mp_num: int = 8):
     return q_weight, k_weight, v_weight
 
 
+FURIOSA_VOCAB_PADDING = 64  # furiosa-models DEFAULT_VOCAB_PADDING_SIZE
+
+
+def pad_vocab_size(vocab_size: int) -> int:
+    """furiosa-models의 VocabEmbeddingLayer 패딩 규칙에 맞게 vocab_size를 올림합니다."""
+    return ((vocab_size + FURIOSA_VOCAB_PADDING - 1) // FURIOSA_VOCAB_PADDING) * FURIOSA_VOCAB_PADDING
+
+
+def pad_embedding_weight(weight: torch.Tensor, padded_vocab_size: int) -> torch.Tensor:
+    """임베딩/lm_head 가중치를 padded_vocab_size로 제로패딩합니다."""
+    current_size = weight.shape[0]
+    if current_size >= padded_vocab_size:
+        return weight
+    pad = torch.zeros(padded_vocab_size - current_size, weight.shape[1], dtype=weight.dtype)
+    return torch.cat([weight, pad], dim=0)
+
+
 def convert_state_dict(state_dict: dict, n_head: int, n_layer: int) -> dict:
     """
     ProGen2 state_dict를 furiosa-models 호환 이름으로 변환합니다.
@@ -154,9 +171,13 @@ def convert_state_dict(state_dict: dict, n_head: int, n_layer: int) -> dict:
 
         new_key = None
 
-        # 토큰 임베딩
+        # 토큰 임베딩 (vocab_size 패딩 적용)
         if key == "transformer.wte.weight":
             new_key = "model.wte.weight"
+            padded_size = pad_vocab_size(value.shape[0])
+            if padded_size != value.shape[0]:
+                print(f"  Padding wte.weight: [{value.shape[0]}, {value.shape[1]}] → [{padded_size}, {value.shape[1]}]")
+                value = pad_embedding_weight(value, padded_size)
 
         # 최종 LayerNorm
         elif key == "transformer.ln_f.weight":
@@ -164,9 +185,13 @@ def convert_state_dict(state_dict: dict, n_head: int, n_layer: int) -> dict:
         elif key == "transformer.ln_f.bias":
             new_key = "model.ln_f.bias"
 
-        # LM Head
+        # LM Head (vocab_size 패딩 적용)
         elif key == "lm_head.weight":
             new_key = "lm_head.weight"
+            padded_size = pad_vocab_size(value.shape[0])
+            if padded_size != value.shape[0]:
+                print(f"  Padding lm_head.weight: [{value.shape[0]}, {value.shape[1]}] → [{padded_size}, {value.shape[1]}]")
+                value = pad_embedding_weight(value, padded_size)
 
         # 레이어별 가중치
         elif key.startswith("transformer.h."):
@@ -218,7 +243,10 @@ def create_config_json(model_name: str, output_dir: str, actual_vocab_size: int 
         raise ValueError(f"Unknown model: {model_name}. Available: {list(MODEL_CONFIGS.keys())}")
 
     cfg = MODEL_CONFIGS[model_name]
-    vocab_size = actual_vocab_size if actual_vocab_size is not None else cfg["vocab_size"]
+    raw_vocab_size = actual_vocab_size if actual_vocab_size is not None else cfg["vocab_size"]
+    vocab_size = pad_vocab_size(raw_vocab_size)
+    if vocab_size != raw_vocab_size:
+        print(f"  Padding vocab_size: {raw_vocab_size} → {vocab_size} (furiosa padding={FURIOSA_VOCAB_PADDING})")
 
     config = {
         "architectures": ["ProGenForCausalLM"],
