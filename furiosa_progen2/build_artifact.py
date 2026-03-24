@@ -62,13 +62,10 @@ def main():
 
     try:
         builder = ArtifactBuilder(
-            model=args.model_path,
-            output_path=args.output,
+            model_id_or_path=args.model_path,
             tensor_parallel_size=args.tp,
-            prefill_buckets=prefill,
-            decode_buckets=decode,
         )
-        builder.build()
+        builder.build(save_dir=args.output)
         print(f"\nBuild complete! Artifact saved to: {args.output}")
     except Exception as e:
         logger.error(f"Build failed: {e}")
