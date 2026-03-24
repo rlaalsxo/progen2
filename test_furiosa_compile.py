@@ -164,7 +164,7 @@ def test_torch_compile_backend(model_path):
 
 def main():
     parser = argparse.ArgumentParser(description="furiosa.torch.compiler ProGen2 컴파일 테스트")
-    parser.add_argument("--model", type=str, default="./progen2-medium",
+    parser.add_argument("--model", type=str, default="/mnt/elice/datahub/models/progen2/progen2-medium",
                         help="ProGen2 체크포인트 경로")
     args = parser.parse_args()
 
