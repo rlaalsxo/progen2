@@ -268,10 +268,6 @@ def create_config_json(model_name: str, output_dir: str, actual_vocab_size: int 
         "eos_token_id": 50256,
         "tie_word_embeddings": False,
         "torch_dtype": "float32",
-        "auto_map": {
-            "AutoConfig": "configuration_progen.ProGenConfig",
-            "AutoModelForCausalLM": "modeling_progen.ProGenForCausalLM",
-        },
     }
 
     config_path = os.path.join(output_dir, "config.json")
