@@ -1,0 +1,21 @@
+{
+  "architectures": ["ProGenForCausalLM"],
+  "model_type": "progen",
+  "vocab_size": 50400,
+  "n_positions": 2048,
+  "n_ctx": 2048,
+  "n_embd": 1536,
+  "n_layer": 27,
+  "n_head": 16,
+  "n_inner": 6144,
+  "rotary_dim": 64,
+  "activation_function": "gelu_new",
+  "layer_norm_epsilon": 1e-05,
+  "initializer_range": 0.02,
+  "scale_attn_weights": true,
+  "use_cache": true,
+  "bos_token_id": 50256,
+  "eos_token_id": 50256,
+  "tie_word_embeddings": false,
+  "torch_dtype": "float32"
+}
