@@ -45,10 +45,15 @@ def convert_config(progen_config_path, output_dir):
     num_heads = pg["n_head"]
     head_dim = hidden_size // num_heads
 
+    # furiosa의 create_input_ids()가 torch.randint(0, 128)을 사용하므로
+    # vocab_size >= 128 필요 (원본 32 → 128로 패딩)
+    FURIOSA_MIN_VOCAB_SIZE = 128
+    padded_vocab_size = max(pg["vocab_size"], FURIOSA_MIN_VOCAB_SIZE)
+
     llama_config = {
         "architectures": ["LlamaForCausalLM"],
         "model_type": "llama",
-        "vocab_size": pg["vocab_size"],
+        "vocab_size": padded_vocab_size,
         "hidden_size": hidden_size,
         "num_hidden_layers": pg["n_layer"],
         "num_attention_heads": num_heads,
@@ -64,9 +69,10 @@ def convert_config(progen_config_path, output_dir):
         "torch_dtype": "float32",
         "use_cache": True,
         "_progen2_source": {
+            "original_vocab_size": pg["vocab_size"],
             "rotary_dim": pg.get("rotary_dim"),
             "head_dim": head_dim,
-            "note": "rotary_dim < head_dim: partial rotation in original, full rotation in Llama. Fine-tuning required."
+            "note": "vocab_size padded for furiosa compatibility. rotary_dim < head_dim: partial rotation in original."
         }
     }
 
@@ -75,6 +81,16 @@ def convert_config(progen_config_path, output_dir):
         json.dump(llama_config, f, indent=2)
     print(f"Config 저장: {config_path}")
     return llama_config
+
+
+def pad_weight(weight, target_rows, dim=0):
+    """가중치를 target_rows 크기로 제로패딩."""
+    current_rows = weight.shape[dim]
+    if current_rows >= target_rows:
+        return weight
+    pad_size = [0] * (2 * weight.ndim)
+    pad_size[-(2 * dim + 1)] = target_rows - current_rows
+    return torch.nn.functional.pad(weight, pad_size)
 
 
 def convert_weights(model_path, output_dir, llama_config):
@@ -86,20 +102,23 @@ def convert_weights(model_path, output_dir, llama_config):
     num_heads = llama_config["num_attention_heads"]
     num_layers = llama_config["num_hidden_layers"]
     intermediate_size = llama_config["intermediate_size"]
+    vocab_size = llama_config["vocab_size"]
 
     new_sd = {}
 
-    # Embedding
-    new_sd["model.embed_tokens.weight"] = sd["transformer.wte.weight"].clone()
-    print(f"  embed_tokens: {new_sd['model.embed_tokens.weight'].shape}")
+    # Embedding (원본 vocab_size → padded vocab_size로 제로패딩)
+    embed = sd["transformer.wte.weight"].clone()
+    new_sd["model.embed_tokens.weight"] = pad_weight(embed, vocab_size)
+    print(f"  embed_tokens: {embed.shape} → {new_sd['model.embed_tokens.weight'].shape}")
 
     # Final norm
     new_sd["model.norm.weight"] = sd["transformer.ln_f.weight"].clone()
     print(f"  final norm: {new_sd['model.norm.weight'].shape}")
 
-    # LM head
-    new_sd["lm_head.weight"] = sd["lm_head.weight"].clone()
-    print(f"  lm_head: {new_sd['lm_head.weight'].shape}")
+    # LM head (원본 vocab_size → padded vocab_size로 제로패딩)
+    lm = sd["lm_head.weight"].clone()
+    new_sd["lm_head.weight"] = pad_weight(lm, vocab_size)
+    print(f"  lm_head: {lm.shape} → {new_sd['lm_head.weight'].shape}")
 
     for i in range(num_layers):
         prefix_pg = f"transformer.h.{i}"
@@ -144,9 +163,12 @@ def verify_conversion(original_path, new_sd, num_heads, hidden_size):
     model = ProGenForCausalLM.from_pretrained(original_path)
     sd = model.state_dict()
 
+    orig_vocab = sd["transformer.wte.weight"].shape[0]
+
     checks = [
-        ("embed_tokens", sd["transformer.wte.weight"], new_sd["model.embed_tokens.weight"]),
-        ("lm_head", sd["lm_head.weight"], new_sd["lm_head.weight"]),
+        # 패딩된 가중치는 원본 범위만 비교
+        ("embed_tokens", sd["transformer.wte.weight"], new_sd["model.embed_tokens.weight"][:orig_vocab]),
+        ("lm_head", sd["lm_head.weight"], new_sd["lm_head.weight"][:orig_vocab]),
         ("final_norm", sd["transformer.ln_f.weight"], new_sd["model.norm.weight"]),
         ("layer0_o_proj", sd["transformer.h.0.attn.out_proj.weight"], new_sd["model.layers.0.self_attn.o_proj.weight"]),
         ("layer0_input_ln", sd["transformer.h.0.ln_1.weight"], new_sd["model.layers.0.input_layernorm.weight"]),
@@ -206,8 +228,8 @@ def main():
                         help="ProGen2 체크포인트 경로")
     parser.add_argument("--output", type=str, default="./progen2-medium-llama",
                         help="변환된 Llama 모델 출력 경로")
-    parser.add_argument("--verify", action="store_true", default=True,
-                        help="변환 후 검증 수행")
+    parser.add_argument("--no-verify", action="store_true", default=False,
+                        help="변환 후 검증 건너뛰기 (메모리 절약)")
     args = parser.parse_args()
 
     model_path = os.path.abspath(args.model)
@@ -236,7 +258,7 @@ def main():
     print()
 
     # 4. 검증
-    if args.verify:
+    if not args.no_verify:
         all_pass = verify_conversion(
             model_path, new_sd,
             llama_config["num_attention_heads"],
