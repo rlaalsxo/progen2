@@ -267,7 +267,7 @@ def create_config_json(model_name: str, output_dir: str, actual_vocab_size: int 
         "bos_token_id": 50256,
         "eos_token_id": 50256,
         "tie_word_embeddings": False,
-        "torch_dtype": "float32",
+        "torch_dtype": "bfloat16",
     }
 
     config_path = os.path.join(output_dir, "config.json")
