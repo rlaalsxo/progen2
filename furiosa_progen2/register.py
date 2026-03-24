@@ -226,35 +226,37 @@ def _patch_pipeline_metadata():
 
 
 def _patch_create_input_ids():
-    """create_input_ids의 토큰 범위를 실제 vocab_size에 맞게 패치합니다.
+    """CausalModelUtils.create_input_ids의 토큰 범위를 실제 vocab_size에 맞게 패치합니다.
 
-    furiosa-models의 create_input_ids()가 high=128로 하드코딩되어 있어
-    vocab_size < 128인 모델에서 인덱스 초과 에러가 발생합니다.
+    furiosa_models_src/common/export/serve/utils.py:76-77:
+        torch.randint(low=0, high=128, size=(batch_size, seq_len), ...)
+
+    vocab_size(=32, 패딩 후 64) < 128이면 인덱스 초과 에러 발생.
     """
     try:
-        import furiosa.models.common.export.serve.utils as serve_utils
+        from furiosa.models.common.export.serve.utils import CausalModelUtils
         import torch
 
-        original_create = serve_utils.create_input_ids
+        @staticmethod
+        def patched_create_input_ids(
+            batch_size: int,
+            seq_len: int,
+            dtype: torch.dtype = torch.int32,
+            device: torch.device = torch.device("cpu"),
+            collapse_batch_seq_dim: bool = False,
+        ) -> torch.Tensor:
+            # 원본은 high=128, vocab_size=32(패딩64)에서는 high=32로 제한
+            input_ids = torch.randint(
+                low=0, high=32, size=(batch_size, seq_len), dtype=dtype, device=device
+            )
+            if collapse_batch_seq_dim:
+                input_ids = input_ids.flatten()
+            return input_ids
 
-        def patched_create_input_ids(batch_size, seq_len, **kwargs):
-            # vocab_size가 128보다 작으면 안전한 범위로 제한
-            # 원본: torch.randint(low=0, high=128, ...)
-            result = torch.randint(low=0, high=16, size=(batch_size, seq_len), dtype=torch.long)
-            return result
-
-        serve_utils.create_input_ids = patched_create_input_ids
-
-        # CausalModelUtils에서도 참조를 패치
-        try:
-            from furiosa.models.common.export.serve.utils import CausalModelUtils
-            CausalModelUtils.create_input_ids = staticmethod(patched_create_input_ids)
-        except (ImportError, AttributeError):
-            pass
-
-        logger.info("Patched create_input_ids for small vocab_size")
+        CausalModelUtils.create_input_ids = patched_create_input_ids
+        logger.info("Patched CausalModelUtils.create_input_ids (high=128 → high=32)")
     except ImportError:
-        logger.warning("Could not patch create_input_ids")
+        logger.warning("Could not import CausalModelUtils for patching")
     except Exception as e:
         logger.warning(f"Failed to patch create_input_ids: {e}")
 
