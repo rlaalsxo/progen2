@@ -43,7 +43,12 @@ def _register_hf_config():
     # AutoModelForCausalLM에 등록
     AutoModelForCausalLM.register(ProGenConfig, HFProGenForCausalLM)
 
-    logger.info("Registered ProGenConfig and ProGenForCausalLM with HuggingFace transformers")
+    # AutoTokenizer에 등록 — ProGen2는 커스텀 tokenizer.json을 사용
+    # GPT2TokenizerFast가 호환되므로 이를 매핑
+    from transformers import AutoTokenizer, GPT2TokenizerFast
+    AutoTokenizer.register(ProGenConfig, slow_tokenizer_class=None, fast_tokenizer_class=GPT2TokenizerFast)
+
+    logger.info("Registered ProGenConfig, ProGenForCausalLM, and tokenizer with HuggingFace transformers")
 
 
 def _register_furiosa_models():
