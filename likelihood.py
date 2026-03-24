@@ -126,6 +126,9 @@ def main():
     parser.add_argument('--fp16', default=True, type=lambda x: (str(x).lower() == 'true'))
     parser.add_argument('--context', type=str, default='1MGHGVSRPPVVTLRPAVLDDCPVLWRWRNDPETRQASVDEREIPVDTHTRWFEETLKRFDRKLFIVSADGVDAGMVRLDIQDRDAAVSVNIAPEWRGRGVGPRALGCLSREAFGPLALLRMSAVVKRENAASRIAFERAGFTVVDTGGPLLHSSKARLHVVAAIQARMGSTRLPGKVLVSIAGRPTIQRIAERLAVCQELDAVAVSTSVENRDDAIADLAAHLGLVCVRGSETDLIERLGRTAARTGADALVRITADCPLVDPALVDRVVGVWRRSAGRLEYVSNVFPPTFPDGLDVEVLSRTVLERLDREVSDPFFRESLTAYVREHPAAFEIANVEHPEDLSRLRWTMDYPEDLAFVEAVYRRLGNQGEIFGMDDLLRLLEWSPELRDLNRCREDVTVERGIRGTGYHAALRARGQAP2')
     parser.add_argument('--sanity', default=False, type=lambda x: (str(x).lower() == 'true'))
+    parser.add_argument('--provider', type=str, choices=['pytorch', 'furiosa'], default='pytorch')
+    parser.add_argument('--furiosa-model-path', type=str, default=None,
+                        help='변환된 Llama 모델 경로 (furiosa provider 시 PyTorch로 logits 계산)')
     args = parser.parse_args()
 
 
@@ -148,12 +151,22 @@ def main():
 
     # (3) load
 
-    with print_time('loading parameters'):
-        model = create_model(ckpt=ckpt, fp16=args.fp16).to(device)
-
-
     with print_time('loading tokenizer'):
         tokenizer = create_tokenizer_custom(file='tokenizer.json')
+
+    if args.provider == 'furiosa':
+        from transformers import LlamaForCausalLM as LlamaModel
+
+        furiosa_path = args.furiosa_model_path
+        if furiosa_path is None:
+            print('[ERROR] --furiosa-model-path 필요')
+            return
+
+        with print_time('loading converted llama model'):
+            model = LlamaModel.from_pretrained(furiosa_path).to(device)
+    else:
+        with print_time('loading parameters'):
+            model = create_model(ckpt=ckpt, fp16=args.fp16).to(device)
 
 
     # (4) log likelihood

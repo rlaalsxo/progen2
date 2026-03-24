@@ -120,6 +120,9 @@ def main():
     parser.add_argument('--fp16', default=True, type=lambda x: (str(x).lower() == 'true'))
     parser.add_argument('--context', type=str, default='1')
     parser.add_argument('--sanity', default=True, type=lambda x: (str(x).lower() == 'true'))
+    parser.add_argument('--provider', type=str, choices=['pytorch', 'furiosa'], default='pytorch')
+    parser.add_argument('--furiosa-model-path', type=str, default=None,
+                        help='변환된 Llama 모델 또는 furiosa-llm 아티팩트 경로')
     args = parser.parse_args()
 
 
@@ -141,12 +144,42 @@ def main():
 
     # (3) load
 
-    with print_time('loading parameters'):
-        model = create_model(ckpt=ckpt, fp16=args.fp16).to(device)
-
-
     with print_time('loading tokenizer'):
         tokenizer = create_tokenizer_custom(file='tokenizer.json')
+
+    if args.provider == 'furiosa':
+        from furiosa_backend import FuriosaProGen2
+
+        furiosa_path = args.furiosa_model_path
+        if furiosa_path is None:
+            print('[ERROR] --furiosa-model-path 필요')
+            return
+
+        with print_time('loading furiosa model'):
+            furiosa_model = FuriosaProGen2(furiosa_path)
+
+        with print_time('sampling (furiosa)'):
+            completions = furiosa_model.generate(
+                context=args.context,
+                max_length=args.max_length,
+                top_p=args.p,
+                temp=args.t,
+                num_samples=args.num_samples,
+            )
+            truncations = [truncate(c, terminals=['1', '2']) for c in completions]
+
+            print(args.context)
+            for i, truncation in enumerate(truncations):
+                print()
+                print(i)
+                print(truncation)
+
+        furiosa_model.shutdown()
+        return
+
+    # pytorch provider
+    with print_time('loading parameters'):
+        model = create_model(ckpt=ckpt, fp16=args.fp16).to(device)
 
     # (4) sanity
 
