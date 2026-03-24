@@ -67,6 +67,12 @@ def _register_furiosa_models():
     """furiosa.models 패키지에 ProGenForCausalLM을 주입합니다."""
     from furiosa_progen2.modeling import ProGenForCausalLM, ProGen2Model
 
+    # __module__을 furiosa.models.language 경로로 설정하여
+    # hash.py의 모듈 체크를 통과하도록 함
+    # (hash.py:77 "furiosa.models.language" startswith 체크)
+    ProGenForCausalLM.__module__ = "furiosa.models.language.architecture.progen2"
+    ProGen2Model.__module__ = "furiosa.models.language.architecture.progen2"
+
     import furiosa.models
     furiosa.models.ProGenForCausalLM = ProGenForCausalLM
     furiosa.models.ProGen2Model = ProGen2Model
