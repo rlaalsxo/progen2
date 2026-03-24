@@ -333,6 +333,8 @@ def main():
 
     # 4. safetensors로 저장
     print("[4/4] Saving as safetensors...")
+    # safetensors는 non-contiguous 텐서를 허용하지 않음 (tied weights 등)
+    new_state_dict = {k: v.contiguous() for k, v in new_state_dict.items()}
     output_path = os.path.join(args.output, "model.safetensors")
     save_file(new_state_dict, output_path)
     print(f"  Saved: {output_path}")
