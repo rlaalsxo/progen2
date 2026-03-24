@@ -64,7 +64,7 @@ def main():
         from furiosa_llm.artifact.types.config import ModelConfig
         builder = ArtifactBuilder(
             model_id_or_path=args.model_path,
-            model_config=ModelConfig(trust_remote_code=True),
+            model_config=ModelConfig(trust_remote_code=True, task="generate"),
             tensor_parallel_size=args.tp,
         )
         builder.build(save_dir=args.output)
