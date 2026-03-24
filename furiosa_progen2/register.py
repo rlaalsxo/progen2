@@ -225,6 +225,40 @@ def _patch_pipeline_metadata():
         logger.warning(f"Failed to patch metadata: {e}")
 
 
+def _patch_create_input_ids():
+    """create_input_ids의 토큰 범위를 실제 vocab_size에 맞게 패치합니다.
+
+    furiosa-models의 create_input_ids()가 high=128로 하드코딩되어 있어
+    vocab_size < 128인 모델에서 인덱스 초과 에러가 발생합니다.
+    """
+    try:
+        import furiosa.models.common.export.serve.utils as serve_utils
+        import torch
+
+        original_create = serve_utils.create_input_ids
+
+        def patched_create_input_ids(batch_size, seq_len, **kwargs):
+            # vocab_size가 128보다 작으면 안전한 범위로 제한
+            # 원본: torch.randint(low=0, high=128, ...)
+            result = torch.randint(low=0, high=16, size=(batch_size, seq_len), dtype=torch.long)
+            return result
+
+        serve_utils.create_input_ids = patched_create_input_ids
+
+        # CausalModelUtils에서도 참조를 패치
+        try:
+            from furiosa.models.common.export.serve.utils import CausalModelUtils
+            CausalModelUtils.create_input_ids = staticmethod(patched_create_input_ids)
+        except (ImportError, AttributeError):
+            pass
+
+        logger.info("Patched create_input_ids for small vocab_size")
+    except ImportError:
+        logger.warning("Could not patch create_input_ids")
+    except Exception as e:
+        logger.warning(f"Failed to patch create_input_ids: {e}")
+
+
 def register_progen2():
     """ProGen2를 furiosa 에코시스템에 등록하는 메인 함수.
 
@@ -237,6 +271,7 @@ def register_progen2():
     4. find_canonical_model_id 패치 (config JSON 매칭 우회)
     5. get_config_from_pretrained_id 패치 (HF Hub 조회 → 로컬 리다이렉트)
     6. GeneratorPipelineMetadata 패치 (mask dimension)
+    7. create_input_ids 패치 (vocab_size < 128 대응)
     """
     logger.info("Registering ProGen2 with furiosa ecosystem...")
 
@@ -246,5 +281,6 @@ def register_progen2():
     _inject_canonical_config()
     _patch_model_metadata()
     _patch_pipeline_metadata()
+    _patch_create_input_ids()
 
     logger.info("ProGen2 registration complete!")

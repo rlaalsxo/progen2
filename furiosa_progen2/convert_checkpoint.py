@@ -208,17 +208,22 @@ def convert_state_dict(state_dict: dict, n_head: int, n_layer: int) -> dict:
     return new_state_dict
 
 
-def create_config_json(model_name: str, output_dir: str):
-    """progen2-medium용 HuggingFace 호환 config.json을 생성합니다."""
+def create_config_json(model_name: str, output_dir: str, actual_vocab_size: int = None):
+    """HuggingFace 호환 config.json을 생성합니다.
+
+    Args:
+        actual_vocab_size: 체크포인트에서 감지한 실제 vocab_size. None이면 MODEL_CONFIGS 값 사용.
+    """
     if model_name not in MODEL_CONFIGS:
         raise ValueError(f"Unknown model: {model_name}. Available: {list(MODEL_CONFIGS.keys())}")
 
     cfg = MODEL_CONFIGS[model_name]
+    vocab_size = actual_vocab_size if actual_vocab_size is not None else cfg["vocab_size"]
 
     config = {
         "architectures": ["ProGenForCausalLM"],
         "model_type": "progen",
-        "vocab_size": cfg["vocab_size"],
+        "vocab_size": vocab_size,
         "n_positions": cfg["n_positions"],
         "n_ctx": cfg["n_positions"],
         "n_embd": cfg["n_embd"],
@@ -297,15 +302,19 @@ def main():
 
     os.makedirs(args.output, exist_ok=True)
 
-    # 1. config.json 생성
-    print("[1/4] Creating config.json...")
-    create_config_json(args.model, args.output)
-
-    # 2. 체크포인트 로드
-    print("[2/4] Loading checkpoint...")
+    # 1. 체크포인트 로드
+    print("[1/4] Loading checkpoint...")
     ckpt_files = find_checkpoint_files(args.ckpt)
     state_dict = load_state_dict(ckpt_files)
     print(f"  Loaded {len(state_dict)} parameters")
+
+    # 체크포인트에서 실제 vocab_size 감지
+    actual_vocab_size = state_dict["transformer.wte.weight"].shape[0]
+    print(f"  Detected vocab_size from checkpoint: {actual_vocab_size}")
+
+    # 2. config.json 생성 (실제 vocab_size 사용)
+    print("[2/4] Creating config.json...")
+    create_config_json(args.model, args.output, actual_vocab_size=actual_vocab_size)
 
     # 3. 가중치 변환
     print("[3/4] Converting weights...")
